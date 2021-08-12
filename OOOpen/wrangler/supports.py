@@ -1,4 +1,4 @@
-from pandas import DataFrame, Series, to_timedelta, to_datetime
+from pandas import DataFrame, Series, to_timedelta
 from numpy import subtract, logical_and, logical_or, invert
 
 def get_sup_func(x):
