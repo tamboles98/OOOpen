@@ -1,11 +1,9 @@
-from pandas import DataFrame
-
-def rsi(data: DataFrame, nd: int = 15, open_col: str = "open", close_col: str = "close") -> DataFrame:
+def rsi(data, nd: int = 15, open_col: str = "open", close_col: str = "close"):
     """Add a new column to data with the rsi oscilator
 
     Parameters
     ----------
-    data : DataFrame
+    data : pandas.DataFrame
         A pandas DataFrame with stock information, in need to have columns with open
         a close values for each day and be ordered from older to newer values
     nd : int, optional
@@ -17,7 +15,7 @@ def rsi(data: DataFrame, nd: int = 15, open_col: str = "open", close_col: str = 
 
     Returns
     -------
-    DataFrame
+    pandas.DataFrame
         The original DataFrame (data) with the new rsi column
     """
     dif = data[open_col] - data[close_col]
