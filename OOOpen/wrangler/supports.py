@@ -125,36 +125,32 @@ def close_days(data: DataFrame, compare: DataFrame, surviving_days: DataFrame, t
     return surviving_days[compare.index] & (valdif < thresh)
 
 
-def get_supports2(data, reference_col: str = "low", compare_col: str = "close",
-                date_col: str = "date", thresh: int = 0.01, resistances: bool = False) -> DataFrame:
-    """Get all support days in data with the number of days that each support lasted
+def get_supports_resistances(data, thresh: int = 0.01, date_col: str = "date") -> DataFrame:
+    """Get all the information about supports and resistances in data
+
+    When broken supports become resistances and viceversa
 
     Parameters
     ----------
     data : DataFrame
         A DataFrame with the historical data
-    reference_col : str, optional
-        The name of the column to use as a price to determine when a support
-        is created, by default "low"
-    compare_col : str, optional
-        The name of the column to use as a price to determine when a support is
-        broken, by default "close
     date_col : str, optional
         The name of the column to use as a date for the price, by default "date"
     thresh : int, optional
         How much (in proportion) can a support be breached until its considered
         broken, by default 0.01
-    resistances : bool, optional
-        Calculate resistances instead
 
     Returns
     -------
     tuple:
-        A tuple with two elements:
-        A DataFrame with the info for all the supports, the same fields as for a normal
-        day but with a new "age" column specifying for how many days the support
-        survived before breaking.
-        A boolean DataFrame that indicates which supports where close to a previous one.
+        A tuple with 6 elements
+            * DataFrame with general information about supports
+            * Matrix of days that supports were active
+            * Matrix of close days for supports (days that the support was almost
+            broken but the finally ended bouncing back)
+            * DataFrame with general information about resistances
+            * Matrix of days that resistances were active
+            * Matrix of close days for supports
     """
     data = data.sort_values(date_col)
     sup = _get_days(data, value_col= "low")[["symbol", "date", "low", "volume"]]

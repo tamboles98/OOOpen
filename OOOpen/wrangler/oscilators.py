@@ -1,4 +1,4 @@
-def rsi(data, nd: int = 14, open_col: str = "open", close_col: str = "close"):
+def rsi(data, nd: int = 14):
     """Add a new column to data with the rsi oscilator
 
     Parameters
@@ -8,10 +8,6 @@ def rsi(data, nd: int = 14, open_col: str = "open", close_col: str = "close"):
         a close values for each day and be ordered from older to newer values
     nd : int, optional
         Time frame (number of days) to use when computing the rsi, by default 15
-    open_col : str, optional
-        Name of the column to use as open values, by default "open"
-    close_col : str, optional
-        Name of the column to use as close values, by default "close"
 
     Returns
     -------
