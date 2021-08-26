@@ -1,4 +1,4 @@
-def rsi(data, nd: int = 15, open_col: str = "open", close_col: str = "close"):
+def rsi(data, nd: int = 14, open_col: str = "open", close_col: str = "close"):
     """Add a new column to data with the rsi oscilator
 
     Parameters
