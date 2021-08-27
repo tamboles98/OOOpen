@@ -14,7 +14,7 @@ def rsi(data, nd: int = 14):
     pandas.DataFrame
         The original DataFrame (data) with the new rsi column
     """
-    dif = data[open_col] - data[close_col]
+    dif = data["open"] - data["close"]
     w = dif.clip(lower=0).rolling(nd).sum()
     l = -dif.clip(upper=0).rolling(nd).sum()
     return data.assign(**{"rsi{}".format(nd): 100 - 100/(1 + w/l)})

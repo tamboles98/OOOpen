@@ -1,7 +1,7 @@
 from pandas import DataFrame, to_datetime, concat
 
 def id_to_date(ids):
-    return _to_datetime(ids.str.slice(start = -8), format = "%Y%m%d")
+    return to_datetime(ids.str.slice(start = -8), format = "%Y%m%d")
 
 def apply_to_multiple_symbols(data: DataFrame, function, **kwargs):
     return data.groupby("symbol").apply(function, **kwargs).droplevel("symbol")
@@ -14,7 +14,7 @@ def shift_data(data: DataFrame, previous: int) -> DataFrame:
     return shifted
 
 
-def add_previous_days(data: DataFrame, previous: int) -> DataFrame:
+def add_previous_days(data: DataFrame, previous: int = 4) -> DataFrame:
     shifted = [shift_data(data, i) for i in range(1, previous + 1)]
     con = [data]
     con.extend(shifted)

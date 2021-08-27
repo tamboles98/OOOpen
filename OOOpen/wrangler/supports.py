@@ -1,7 +1,9 @@
 from numpy.lib.type_check import real_if_close
-from pandas import DataFrame, Series, to_timedelta
+from pandas import DataFrame, Series, to_timedelta, read_pickle
 from numpy import subtract, logical_and, logical_or, invert, abs
-from .utils import id_to_date as _id_to_date
+from pandas.core.reshape.concat import concat
+from .utils import id_to_date
+import pathlib
 
 def _get_sup_func(x):
     return x.iloc[0] > x.iloc[1] < x.iloc[2]
@@ -69,7 +71,7 @@ def surviving_days (sups: DataFrame, data: DataFrame, thresh: float = 0.01,
     alive = logical_or(invert(compa), alive).cumprod(axis = 1).astype(bool)
     alive = logical_and(compa, alive)
     breakers = logical_and(invert(alive), compa)
-    breakers = breakers.where(breakers).idxmax(axis = 1)
+    breakers = breakers[breakers.any(axis = 1)].idxmax(axis = 1)
     return alive, breakers
 
 
@@ -160,9 +162,9 @@ def get_supports_resistances(data, thresh: int = 0.01, date_col: str = "date") -
     sdays, sbreakers = surviving_days(sup, data, thresh, date_col)
     rdays, rbreakers = surviving_days(res, data, thresh, date_col, "high", resistances= True)
     #Enrich the supports/resistances with the above information
-    sup = sup.assign(age = sdays.sum(axis = 1), enday = _id_to_date(sbreakers),
+    sup = sup.assign(age = sdays.sum(axis = 1), enday = id_to_date(sbreakers),
         ended = sbreakers.notna(), original = True)
-    res = res.assign(age = rdays.sum(axis = 1), enday = _id_to_date(rbreakers),
+    res = res.assign(age = rdays.sum(axis = 1), enday = id_to_date(rbreakers),
         ended = rbreakers.notna(), original = True)
     #Days that broke a resistance become support and vice versa
     #Select the days that break any support or ressintance
@@ -175,12 +177,14 @@ def get_supports_resistances(data, thresh: int = 0.01, date_col: str = "date") -
         .assign(breakers = sbreakers) \
         .groupby("breakers")["low"] \
         .agg("idxmin") \
-        .drop(sup.index, errors = "ignore")
+        .drop(res.index, errors = "ignore")
+    #The days that break support will become resistances, we drop those days that
+    # are already resistances
     auxrbreakers = res \
         .assign(breakers = rbreakers) \
         .groupby("breakers")["high"] \
         .agg("idxmax") \
-        .drop(sup.index, errors = "ignore")
+        .drop(sup.index, errors = "ignore") #Drop days that are already supports
     #Get the data for those breakers
     second_resistances = data.loc[auxsbreakers.index, ["symbol", "date", "volume"]]
     auxsbreakers = Series(auxsbreakers.index, index = auxsbreakers.values)
@@ -195,9 +199,9 @@ def get_supports_resistances(data, thresh: int = 0.01, date_col: str = "date") -
     sdays2, sbreakers2 = surviving_days(second_supports, data, thresh, date_col)
     rdays2, rbreakers2 = surviving_days(second_resistances, data, thresh, date_col, "high", resistances=True)
     second_supports = second_supports \
-        .assign(age = sdays2.sum(axis = 1), enday = _id_to_date(sbreakers2),
+        .assign(age = sdays2.sum(axis = 1), enday = id_to_date(sbreakers2),
             ended = sbreakers2.notna(), original = False)
-    second_resistances = second_resistances.assign(age = rdays2.sum(axis = 1), enday = _id_to_date(rbreakers2),
+    second_resistances = second_resistances.assign(age = rdays2.sum(axis = 1), enday = id_to_date(rbreakers2),
         ended = rbreakers2.notna(), original = False)
 
     #Start preparing the final data
@@ -217,7 +221,10 @@ def get_supports_resistances(data, thresh: int = 0.01, date_col: str = "date") -
     sup = sup.assign(close = sclose.sum(axis = 1))
     res = res.assign(close = rclose.sum(axis = 1))
 
-    return (sup.sort_values("date"), sdays.sort_, sclose, res.sort_values("date"), rdays, rclose)
+    sclose.columns = id_to_date(sclose.columns)
+    rclose.columns = id_to_date(rclose.columns)
+
+    return (sup.sort_values("date"), sdays, sclose, res.sort_values("date"), rdays, rclose)
 
 
 def get_supports(data, reference_col: str = "low", compare_col: str = "close",
@@ -318,3 +325,120 @@ def get_resistances(data, reference_col: str = "high", compare_col: str = "close
         survived before breaking.
     """
     return get_supports(data, reference_col, compare_col, date_col, thresh, resistances= True)
+
+
+# ---------------------------------------
+
+def get_closest_support(x: Series, info: DataFrame, comp: DataFrame, close: DataFrame) -> dict:
+    candidates = info[comp[x.name]]
+    if candidates.empty:
+        return {"sup_val": 0, "sup_vol": -1, "sup_age": 0, "sup_close": 0}
+    else:
+        id_ = ((candidates["low"] - x["close"])/x["close"]).abs().idxmin()
+        age = comp.loc[id_, :x.name].shape[0]
+        ncl = close.loc[id_, :x["date"]].sum()
+        return {"sup_val": info.loc[id_, "low"], "sup_vol": info.loc[id_, "volume"],
+            "sup_age": age, "sup_close": ncl}
+
+def add_supports(data: DataFrame, info: DataFrame, comp: DataFrame, close: DataFrame) -> DataFrame:
+    """Add columns regarding the closest supports to each day in a dataFrame with
+    historical data about a stock
+
+    Parameters
+    ----------
+    data : DataFrame
+        The historical data of the stock
+    info : DataFrame
+        A dataFrame with general info about supports (see the returned values of
+        the get_supports_resistances method in this same module)
+    comp : DataFrame
+        A boolean matrix that tells which supports were active each day (see the returned values of
+        the get_supports_resistances method in this same module)
+    close : DataFrame
+        A boolean matrix with the close days for each support (see the returned values of
+        the get_supports_resistances method in this same module)
+
+    Returns
+    -------
+    DataFrame
+        The original data dataFrame with new columns with the supports info:
+         * sup_val: the price of the support
+         * sup_vol: the volume of transactions the day of the support
+         * sup_age: the age of the support the relevant day
+         * sup_close: the number of close days the support had experienced before
+            the relevant day (days that the support was almost breached but ultimately
+            the price bounced back)
+    """
+    new_cols = data \
+        .apply(get_closest_support, axis = 1, info = info, comp = comp, close = close) \
+        .apply(Series)
+    return concat([data, new_cols], axis = 1)
+
+
+def get_closest_resitances(x: Series, info: DataFrame, comp: DataFrame, close: DataFrame) -> dict:
+    candidates = info[comp[x.name]]
+    if candidates.empty:
+        return {"res_val": 2*x["close"], "res_vol": -1, "res_age": 0, "res_close": 0}
+    else:
+        id_ = ((candidates["high"] - x["close"])/x["close"]).abs().idxmin()
+        age = comp.loc[id_, :x.name].shape[0]
+        ncl = close.loc[id_, :x["date"]].sum()
+        return {"res_val": info.loc[id_, "high"], "res_vol": info.loc[id_, "volume"],
+            "res_age": age, "res_close": ncl}
+
+def add_resistances(data: DataFrame, info: DataFrame, comp: DataFrame, close: DataFrame) -> DataFrame:
+    """Add columns regarding the closest resistances to each day in a dataFrame with
+    historical data about a stock
+
+    Parameters
+    ----------
+    data : DataFrame
+        The historical data of the stock
+    info : DataFrame
+        A dataFrame with general info about resistances (see the returned values of
+        the get_resistances_resistances method in this same module)
+    comp : DataFrame
+        A boolean matrix that tells which resistances were active each day (see the returned values of
+        the get_resistances_resistances method in this same module)
+    close : DataFrame
+        A boolean matrix with the close days for each resistance (see the returned values of
+        the get_resistances_resistances method in this same module)
+
+    Returns
+    -------
+    DataFrame
+        The original data dataFrame with new columns with the resistances info:
+         * sup_val: the price of the resistance
+         * sup_vol: the volume of transactions the day of the resistance
+         * sup_age: the age of the resistance the relevant day
+         * sup_close: the number of close days the resistance had experienced before
+            the relevant day (days that the resistance was almost breached but ultimately
+            the price bounced back)
+    """
+    new_cols = data \
+        .apply(get_closest_resitances, axis = 1, info = info, comp = comp, close = close) \
+        .apply(Series)
+    return concat([data, new_cols], axis = 1)
+
+
+def process_supports_resistances(data: DataFrame, artifacts_dir: str,
+    thresh: float = 0.01) -> DataFrame:
+    needed = ["sup_info.pickle", "sup_days.pickle", "sup_close.pickle",
+            "res_info.pickle", "res_days.pickle", "res_close.pickle"]
+    symb = data.iloc[0]["symbol"]
+    artidir = pathlib.Path(artifacts_dir) / symb
+    needed = [artidir / n for n in needed]
+    if all(f.is_file() for f in needed):
+        supinfo, supdays, supclose, resinfo, resdays, resclose = tuple(
+            read_pickle(p) for p in needed)
+    else:
+        elements = get_supports_resistances(
+            data = data, thresh=thresh, date_col = "date"
+        )
+        artidir.mkdir(parents=True, exist_ok=True)
+        for n, e in zip(needed, elements): e.to_pickle(n)
+        supinfo, supdays, supclose, resinfo, resdays, resclose = elements
+    data = add_resistances(data, info=resinfo, comp=resdays, close=resclose)
+    return add_supports(data, info=supinfo, comp=supdays, close=supclose)
+
+    
